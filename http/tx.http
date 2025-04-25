@@ -1,0 +1,18 @@
+### GET request to example server
+GET https://examples.http-client.intellij.net/get
+    ?generated-in=GoLand
+
+###
+
+
+### Client submit tx
+@url = variable value
+POST {{url}}/submit
+Content-Type:  application/json
+
+
+### Review TX
+@url = variable value
+GET {{url}}/submit
+Content-Type:  application/json
+
