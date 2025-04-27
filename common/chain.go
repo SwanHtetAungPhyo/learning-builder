@@ -1,20 +1,11 @@
 package common
 
 import (
-	"fmt"
 	"sync"
 	"time"
 )
 
 type (
-	BlockChain struct {
-		ChainMetaData struct {
-			Name      string `json:"name"`
-			StartedAt string `json:"startedAt"`
-		}
-		Blocks []*Block     `json:"blocks"`
-		mu     sync.RWMutex `json:"-"`
-	}
 	BlockHeader struct {
 		Index      string `json:"index"`
 		Validator  string `json:"validator"`
@@ -23,6 +14,16 @@ type (
 	}
 )
 
+type BlockChain struct {
+	ChainMetaData struct {
+		Name      string `json:"name"`
+		StartedAt string `json:"startedAt"`
+	}
+	Blocks []*Block
+	Mu     sync.RWMutex
+}
+
+// NewBlockChain creates a new blockchain with genesis block
 func NewBlockChain(name string) *BlockChain {
 	chain := &BlockChain{
 		ChainMetaData: struct {
@@ -35,96 +36,126 @@ func NewBlockChain(name string) *BlockChain {
 		Blocks: make([]*Block, 0),
 	}
 
+	// Create and add genesis block
 	genesisWallet := NewUserAccount("Genesis")
 	gexTx := NewTx(genesisWallet.PublicKey, "0x1d6b85...", 10000)
 	genesisWallet.SignTx(gexTx)
+
 	genesisBlock := NewBlock([]*Tx{gexTx}, "")
 	genesisBlock.SetValidator(genesisWallet)
 	genesisBlock.SetMerkleTree()
 	genesisBlock.Hash = genesisBlock.ProduceHash().Hex()
 	genesisBlock.PrevHash = "0"
+	genesisBlock.ValidatorSignature = NewValidator(genesisWallet).SignBlock(genesisBlock)
 
-	genesisValidator := NewValidator(genesisWallet)
-	genesisBlock.SetValidator(genesisWallet)
-	genesisValidator.ProduceBlock([]*Tx{gexTx}, genesisBlock.Hash)
-	genesisBlock.Hash = genesisBlock.ProduceHash().Hex()
-	genesisBlock.ValidatorSignature = genesisValidator.SignBlock(genesisBlock)
-	genesisBlock.PrevHash = "0"
-	if _, err := chain.AddBlock(genesisBlock); err != nil {
-		panic(fmt.Sprintf("Failed to create genesis block: %v", err))
-	}
+	chain.Mu.Lock()
+	chain.Blocks = append(chain.Blocks, genesisBlock)
+	chain.Mu.Unlock()
+
 	return chain
 }
 
+// AddBlock adds a new block to the chain (thread-safe)
 func (c *BlockChain) AddBlock(block *Block) (bool, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.Mu.Lock()
+	defer c.Mu.Unlock()
 
-	if c.checkHashExistence(block.Hash) {
-		return false, fmt.Errorf("block with hash %s already exists", block.Hash)
-	}
+	//// Validate the block
+	//if block == nil {
+	//	return false, fmt.Errorf("nil block")
+	//}
+	//
+	//if c.blockExists(block.Hash) {
+	//	return false, fmt.Errorf("block with hash %s already exists", block.Hash)
+	//}
+	//
+	//// For non-genesis blocks, check previous hash
+	//if len(c.Blocks) > 0 && block.PrevHash != c.Blocks[len(c.Blocks)-1].Hash {
+	//	return false, fmt.Errorf("previous hash mismatch")
+	//}
 
-	if len(c.Blocks) > 0 && !c.checkHashExistence(block.PrevHash) {
-		return false, fmt.Errorf("previous hash %s not found in chain", block.PrevHash)
-	}
-
-	index := c.findInsertIndex(block.Hash)
-	c.Blocks = append(c.Blocks[:index], append([]*Block{block}, c.Blocks[index:]...)...)
-
+	c.Blocks = append(c.Blocks, block)
 	return true, nil
 }
 
-// findInsertIndex finds the position to insert a new block to maintain sorted order
-func (c *BlockChain) findInsertIndex(hash string) int {
-	left, right := 0, len(c.Blocks)
-	for left < right {
-		mid := (left + right) / 2
-		if c.Blocks[mid].Hash < hash {
-			left = mid + 1
-		} else {
-			right = mid
-		}
-	}
-	return left
+// GetBlockCount returns the number of blocks (thread-safe)
+func (c *BlockChain) GetBlockCount() int {
+	c.Mu.RLock()
+	defer c.Mu.RUnlock()
+	return len(c.Blocks)
 }
 
-// checkHashExistence now assumes blocks are sorted
-func (c *BlockChain) checkHashExistence(hash string) bool {
-	left, right := 0, len(c.Blocks)
-	for left < right {
-		mid := (left + right) / 2
-		if c.Blocks[mid].Hash == hash {
-			return true
-		} else if c.Blocks[mid].Hash < hash {
-			left = mid + 1
-		} else {
-			right = mid
-		}
+// GetLatestBlock returns the last block (thread-safe)
+func (c *BlockChain) GetLatestBlock() *Block {
+	c.Mu.RLock()
+	defer c.Mu.RUnlock()
+	if len(c.Blocks) == 0 {
+		return nil
 	}
-	return false
+	return c.Blocks[len(c.Blocks)-1]
 }
-func (c *BlockChain) GetBlockByIndex(hash string) *Block {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	left, right := 0, len(c.Blocks)
-	for left < right {
-		index := (left + right) / 2
-		if c.Blocks[index].Hash == hash {
-			return c.Blocks[index]
-		} else if c.Blocks[index].Hash > hash {
-			right = index
-		} else {
-			left = index + 1
+
+// GetLatestHash returns the hash of the last block (thread-safe)
+func (c *BlockChain) GetLatestHash() string {
+	if block := c.GetLatestBlock(); block != nil {
+		return block.Hash
+	}
+	return ""
+}
+
+// GetBlockByHash finds a block by hash (thread-safe)
+func (c *BlockChain) GetBlockByHash(hash string) *Block {
+	c.Mu.RLock()
+	defer c.Mu.RUnlock()
+
+	for _, block := range c.Blocks {
+		if block.Hash == hash {
+			return block
 		}
 	}
 	return nil
 }
 
-func (c *BlockChain) GetLatestHash() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if len(c.Blocks) == 0 {
-		return ""
+// GetAllBlocks returns a copy of all blocks (thread-safe)
+func (c *BlockChain) GetAllBlocks() []*Block {
+	c.Mu.RLock()
+	defer c.Mu.RUnlock()
+
+	blocks := make([]*Block, len(c.Blocks))
+	copy(blocks, c.Blocks)
+	return blocks
+}
+
+// blockExists checks if a block exists (internal use, assumes lock is held)
+func (c *BlockChain) blockExists(hash string) bool {
+	for _, block := range c.Blocks {
+		if block.Hash == hash {
+			return true
+		}
 	}
-	return c.Blocks[len(c.Blocks)-1].Hash
+	return false
+}
+
+// VerifyChain validates the entire chain integrity
+func (c *BlockChain) VerifyChain() bool {
+	c.Mu.RLock()
+	defer c.Mu.RUnlock()
+
+	if len(c.Blocks) == 0 {
+		return false
+	}
+
+	// Check genesis block
+	if c.Blocks[0].PrevHash != "0" {
+		return false
+	}
+
+	// Check subsequent blocks
+	for i := 1; i < len(c.Blocks); i++ {
+		if c.Blocks[i].PrevHash != c.Blocks[i-1].Hash {
+			return false
+		}
+	}
+
+	return true
 }

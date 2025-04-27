@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+option go_package = "github.com/SwanHtetAungPhyo/Learning/common";
+package common;
+
+// Message for BlockHeader
+message BlockHeader {
+  string index = 1;
+  string validator = 2;
+  string timestamp = 3;
+  string merkleRoot = 4;
+}
+
+// Message for Tx (Transaction)
+message Tx {
+  string from = 1;
+  string to = 2;
+  string signature = 3;
+  int32 amount = 4;
+  string timestamp = 5;
+  string prevHash = 6;
+  string hash = 7;
+}
+
+// Message for Block
+message Block {
+  BlockHeader blockHeader = 1;
+  string hash = 2;
+  string prevHash = 3;
+  string validatorSignature = 4;
+  repeated Tx txs = 5;
+}
+
+// Chain metadata
+message ChainMetadata {
+  string name = 1;
+  string started_at = 2;
+  int32 block_count = 3;
+  string latest_hash = 4;
+}
+
+// Block range request
+message BlockRangeRequest {
+  int32 start_index = 1;
+  int32 count = 2;
+}
+
+// Block list response
+message BlockListResponse {
+  repeated Block blocks = 1;
+}
+
+// Transaction query
+message TransactionQuery {
+  string hash = 1;
+  string address = 2;
+}
+
+// Transaction list response
+message TransactionListResponse {
+  repeated Tx transactions = 1;
+}
+
+// Chain validation response
+message ChainValidationResponse {
+  bool is_valid = 1;
+  string validation_message = 2;
+}
+
+// Request message for ProposeBlockCall
+message ProposeBlockRequest {
+  Block block = 1;
+}
+
+// Response message for ProposeBlockCall
+message ProposeBlockResponse {
+  string proposalStatus = 1;
+  Block proposedBlock = 2;
+}
+
+message  RawChainState {
+  string json_data = 1;
+}
+// Empty request
+message Empty {}
+
+service BlockchainService {
+  // Block proposal
+  rpc ProposeBlockCall(ProposeBlockRequest) returns (ProposeBlockResponse);
+
+  // Chain state queries
+  rpc GetChainMetadata(Empty) returns (ChainMetadata);
+  rpc GetBlockByHash(TransactionQuery) returns (Block);
+  rpc GetLatestBlock(Empty) returns (Block);
+  rpc GetBlocks(BlockRangeRequest) returns (BlockListResponse);
+
+  // Transaction queries
+  rpc GetTransactionByHash(TransactionQuery) returns (Tx);
+  rpc GetTransactionsByAddress(TransactionQuery) returns (TransactionListResponse);
+  rpc GetFullChainState(Empty) returns (RawChainState);
+  // Validation
+  rpc ValidateChain(Empty) returns (ChainValidationResponse);
+}

@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
+	"github.com/SwanHtetAungPhyo/learning/common"
 	"github.com/SwanHtetAungPhyo/learning/mainNode/cmd"
+	"github.com/SwanHtetAungPhyo/learning/mainNode/cmd/grpc_server"
 	"github.com/SwanHtetAungPhyo/learning/mainNode/internal/config"
 	"github.com/SwanHtetAungPhyo/learning/mainNode/internal/handler"
-
 	"github.com/sirupsen/logrus"
 	"runtime"
 )
@@ -17,7 +18,6 @@ func init() {
 }
 func main() {
 	logger := logrus.New()
-
 	logger.Formatter = &logrus.JSONFormatter{
 		TimestampFormat: "2006-01-02 15:04:05",
 		CallerPrettyfier: func(f *runtime.Frame) (string, string) {
@@ -26,10 +26,20 @@ func main() {
 		},
 		PrettyPrint: true,
 	}
-	logger.Println(configuration.Validators)
-	server := cmd.NewServer(logger, handler.NewImpl(logger, configuration.Validators))
+	logger.SetLevel(logrus.DebugLevel)
+	chain := common.NewBlockChain("Swan")
 
-	server.Start()
+	grpcServer := grpc_server.NewGrpcServer(logger)
+	server := cmd.NewServer(logger, handler.NewImpl(logger, configuration.Validators, chain))
+	go grpcServer.Start()
+	go func() {
+		err := server.Start()
+		if err != nil {
+			logger.Panicf("Server failed: %v", err.Error())
+		}
+	}()
+
+	select {}
 	//mainNode := avl.NewNode(configuration.Validators[0])
 	//for _, nodes := range configuration.Validators {
 	//	logger.Println(nodes)

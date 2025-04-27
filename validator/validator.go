@@ -2,9 +2,13 @@
 package main
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/SwanHtetAungPhyo/learning/common/proto"
 	"github.com/google/uuid"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"log"
 	"net"
 	"os"
@@ -20,7 +24,7 @@ import (
 const (
 	rabbitMQURL  = "amqp://guest:guest@localhost:5672/"
 	exchangeName = "transactions"
-	queueName    = "2061fcaf013131a753bac07e10cdf46eae95cb96bbbfcdbd7564667fc350db62"
+	queueName    = "validator1"
 
 	serverAddress = "127.0.0.1:8081"
 	batchSize     = 10
@@ -48,9 +52,9 @@ func main() {
 	wg.Add(1)
 	go batchTxs(done, validator, validTxs, blocksToPropose, &wg)
 
-	//wg.Add(1)
+	wg.Add(1)
 
-	//go DialAndPropose(done, blocksToPropose, &wg)
+	go DialNaviePropose(done, blocksToPropose, &wg)
 
 	<-signalChan
 	log.Println("Shutting down client...")
@@ -63,7 +67,7 @@ func startValidator(client *common.RabbitMQClient, done <-chan struct{}, validTx
 	defer wg.Done()
 	defer close(validTxs)
 
-	var routingKey = common.RoutingKeyCalculator(queueName)
+	var routingKey = "validator1key"
 	msgs := client.ConsumeMsgWithKey(queueName, exchangeName, routingKey)
 
 	for {
@@ -132,6 +136,87 @@ func proposeBlock(txs []*common.Tx, validator *common.Validator, blocks chan<- *
 	log.Printf("📦 Proposed block with %d TXs (Hash: %s)", len(txs), block.Hash)
 }
 
+func DialNaviePropose(done <-chan struct{}, blocks <-chan *common.Block, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for {
+		select {
+		case <-done:
+			return
+		//case block, ok := <-blocks:
+		//	if !ok {
+		//		return
+		//	}
+		//	resty := resty.New()
+		//	req, err := resty.R().
+		//		SetBody(block).
+		//		Post("http://localhost:8545/blocks-propose")
+		//	if err != nil {
+		//		log.Printf("Failed to send block: %v", err)
+		//		return
+		//	}
+		//	if req.StatusCode() != 200 {
+		//		log.Printf("Failed to send block: %v", req.Error())
+		//		log.Printf("Response: %s", req.String())
+		//		log.Printf("Response status code: %d", req.StatusCode())
+		//		log.Printf("Response headers: %s", req.Header())
+		//		log.Printf("Response body: %s", req.Body())
+		//		return
+		//	}
+		//	log.Printf("New block proposed: %s", block.Hash)
+		case block, ok := <-blocks:
+			if !ok {
+				return
+			}
+			log.Printf("New block proposed: to GRPC %s", block.Hash)
+			conn, err := grpc.NewClient("localhost:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if err != nil {
+				log.Fatalf("failed to connect: %v", err)
+			}
+			defer func(conn *grpc.ClientConn) {
+				err := conn.Close()
+				if err != nil {
+					log.Fatalf("failed to close connection: %v", err)
+				}
+			}(conn)
+			client := proto.NewBlockchainServiceClient(conn)
+			proposeBlockProto := &proto.ProposeBlockRequest{
+				Block: &proto.Block{
+					BlockHeader: &proto.BlockHeader{
+						Index:      block.BlockHeader.Index,
+						MerkleRoot: block.BlockHeader.MerkleRoot,
+						Validator:  block.BlockHeader.Validator,
+						Timestamp:  block.BlockHeader.TimeStamp,
+					},
+					Hash:               block.Hash,
+					PrevHash:           block.PrevHash,
+					ValidatorSignature: block.ValidatorSignature,
+					Txs:                make([]*proto.Tx, len(block.Txs)),
+				},
+			}
+			for i, _ := range block.Txs {
+				proposeBlockProto.Block.Txs[i] = &proto.Tx{
+					From:      block.Txs[i].From,
+					To:        block.Txs[i].To,
+					Signature: block.Txs[i].Signature,
+					Amount:    int32(block.Txs[i].Amount),
+					Timestamp: block.Txs[i].Timestamp,
+					PrevHash:  block.Txs[i].PrevHash,
+					Hash:      block.Txs[i].Hash,
+				}
+			}
+			call, err := client.ProposeBlockCall(context.Background(), proposeBlockProto, grpc.WaitForReady(true))
+			log.Printf("New block proposed: %s", block.Hash)
+			log.Printf("Response: %s", call.String())
+			if err != nil {
+				return
+			}
+
+		default:
+
+		}
+	}
+}
 func DialAndPropose(done <-chan struct{}, blocks <-chan *common.Block, wg *sync.WaitGroup) {
 	defer wg.Done()
 
