@@ -2,7 +2,11 @@ package main
 
 import (
 	"github.com/SwanHtetAungPhyo/learning/common"
+	"github.com/robfig/cron/v3"
 	"log"
+	"os"
+	"os/signal"
+	"time"
 )
 
 const (
@@ -11,42 +15,60 @@ const (
 )
 
 func main() {
-	client := common.NewRabbitMQClient(rabbitMQURL).
-		Connect().
-		CreateChannel()
-	defer client.Close()
-
-	// Create exchange and queues
-	client.CreateExchange(exchangeName, "direct")
-	client.CreateQueue("validator1")
-	client.CreateQueue("validator2")
-	client.BindQueueToExchange("validator1", exchangeName, "validator1key")
-	client.BindQueueToExchange("validator2", exchangeName, "validator2key")
-
+	// Initialize accounts
 	alice := common.NewUserAccount("Alice")
 	bob := common.NewUserAccount("Bob")
 	alice.AddBalance(100)
 
-	//for i := 0; i < 10; i++ {
-	tx := common.NewTx(alice.PublicKey, bob.PublicKey, 10)
-	tx = alice.SignTx(tx)
-	alice.SubtractBalance(10)
-	if tx != nil {
-		alice.CommunicateWithRPC(tx)
-		return
+	// Initial batch of transactions
+	for i := 0; i < 10; i++ {
+		amount := 10*i + 1
+		if alice.Balance < amount {
+			log.Println("Insufficient balance for initial transactions")
+			break
+		}
+
+		tx := common.NewTx(alice.PublicKey, bob.PublicKey, amount)
+		tx = alice.SignTx(tx)
+		if tx != nil {
+			alice.SubtractBalance(amount)
+			alice.CommunicateWithRPC(tx)
+			log.Printf("Sent initial transaction %d: %d", i, amount)
+		} else {
+			log.Println("Failed to sign transaction")
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	log.Println("Helll ")
-	//if tx == nil {
-	//	log.Println("Signing transaction failed")
-	//	continue
-	//}
-	//
-	//	txBytes := common.Must[[]byte](json.Marshal(tx))
-	//
-	//	client.SendMsgJson(txBytes, exchangeName, "validator1key")
-	//	client.SendMsgJson(txBytes, exchangeName, "validator2key")
-	//
-	//	log.Printf("✅ Transaction %d sent to both queues", i)
-	//	time.Sleep(500 * time.Millisecond)
-	//}
+	c := cron.New()
+	_, err := c.AddFunc("@every 1s", func() {
+		amount := 10
+		if alice.Balance < amount {
+			log.Println("Insufficient balance for recurring transaction")
+			alice.AddBalance(100)
+			return
+		}
+
+		tx := common.NewTx(alice.PublicKey, bob.PublicKey, amount)
+		tx = alice.SignTx(tx)
+		if tx != nil {
+			alice.SubtractBalance(amount)
+			alice.CommunicateWithRPC(tx)
+		} else {
+			log.Println("Failed to sign recurring transaction")
+		}
+	})
+
+	if err != nil {
+		log.Fatal("Error adding cron function:", err)
+	}
+
+	c.Start()
+	defer c.Stop()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+
+	log.Println("Cron job started. Press Ctrl+C to stop...")
+	<-sigChan
+	log.Println("Shutting down...")
 }

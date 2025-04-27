@@ -17,6 +17,9 @@ func NewUserAccount(name string) *UserAccount {
 	return userAcc
 }
 
+func (u *UserAccount) GetBalance() int {
+	return u.Balance
+}
 func (u *UserAccount) AddBalance(amount int) {
 	u.Balance += amount
 }
@@ -88,4 +91,7 @@ func (u *UserAccount) CommunicateWithRPC(tx *Tx) {
 	//	return
 	//}
 	//log.Println(resp.StatusCode, resp.Status, resp.Body)
+}
+func (u *UserAccount) GetPrivateKey() string {
+	return u.privateKey
 }

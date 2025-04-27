@@ -2,6 +2,8 @@ package handler
 
 import (
 	"github.com/SwanHtetAungPhyo/learning/common"
+	"github.com/SwanHtetAungPhyo/learning/mainNode/internal/avl"
+	"github.com/SwanHtetAungPhyo/learning/mainNode/internal/model"
 	"github.com/goccy/go-json"
 	"github.com/gofiber/fiber/v2"
 	"github.com/sirupsen/logrus"
@@ -16,29 +18,61 @@ type Handler interface {
 type Impl struct {
 	log            *logrus.Logger
 	rabbitMqClient *common.RabbitMQClient
+	Validators     []model.Validator
+	Consensus      *model.ConsensusResult
 }
 
-func NewImpl(log *logrus.Logger) *Impl {
+func NewImpl(log *logrus.Logger, validators []model.Validator) *Impl {
 	impl := &Impl{
-		log: log,
+		log:        log,
+		Validators: validators,
 	}
-	impl.rabbitMqClient = common.NewRabbitMQClient("amqp://guest:guest@localhost:5672/")
-	impl.rabbitMqClient.Connect()
-	impl.rabbitMqClient.CreateChannel()
-	impl.rabbitMqClient.CreateQueue("validator1")
-	impl.rabbitMqClient.BindQueueToExchange("validator1", "transactions", "validator1key")
+	impl.
+		Consensus = impl.
+		TreeBuilding().
+		CheckConsensus()
+	impl.
+		rabbitMqClient = common.
+		NewRabbitMQClient("amqp://guest:guest@localhost:5672/")
+	selectedValidator := impl.
+		Consensus.
+		Validators[0].Name
+	impl.
+		rabbitMqClient.
+		Connect()
+	impl.
+		rabbitMqClient.
+		CreateChannel()
+	impl.
+		rabbitMqClient.
+		CreateQueue(selectedValidator)
+	impl.
+		rabbitMqClient.
+		BindQueueToExchange(
+			selectedValidator,
+			"transactions",
+			common.RoutingKeyCalculator(selectedValidator))
 	return impl
+}
+
+func (i Impl) TreeBuilding() *avl.Node {
+	headNode := avl.NewNode(i.Validators[0])
+	for _, validator := range i.Validators {
+		headNode.Insert(validator)
+	}
+	return headNode
 }
 
 func (i Impl) SubmitTx(c *fiber.Ctx) error {
 	var incomingTx common.Tx
-	i.log.Infoln("Received request: ", c.Body())
+
 	if err := c.BodyParser(&incomingTx); err != nil {
 		return c.JSON(fiber.Map{
 			"error":   err.Error(),
 			"message": "invalid Transaction format",
 		})
 	}
+	i.log.Info("Received from client: ", string(c.Body()))
 	jsonBytes := common.Must[[]byte](json.Marshal(incomingTx))
 
 	i.rabbitMqClient.SendMsgJson(jsonBytes, "transactions", "validator1key")

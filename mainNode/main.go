@@ -2,39 +2,18 @@ package main
 
 import (
 	"fmt"
-
 	"github.com/SwanHtetAungPhyo/learning/mainNode/cmd"
+	"github.com/SwanHtetAungPhyo/learning/mainNode/internal/config"
 	"github.com/SwanHtetAungPhyo/learning/mainNode/internal/handler"
-	"github.com/joho/godotenv"
+
 	"github.com/sirupsen/logrus"
-	"os"
 	"runtime"
 )
 
-type Config struct {
-	Port        string
-	RabbitMQURL string
-}
+var configuration *config.Config
 
-var config *Config
-
-func NewConfig() {
-	err := godotenv.Load(".env")
-	if err != nil {
-		logrus.Warnf(err.Error())
-	}
-	port := os.Getenv("PORT")
-	if port == " " {
-		port = "8545"
-	}
-	rabbitMQURL := os.Getenv("RABBITMQ_URL")
-	config = &Config{
-		Port:        port,
-		RabbitMQURL: rabbitMQURL,
-	}
-}
 func init() {
-	NewConfig()
+	configuration = config.NewConfig()
 }
 func main() {
 	logger := logrus.New()
@@ -47,9 +26,17 @@ func main() {
 		},
 		PrettyPrint: true,
 	}
-
-	server := cmd.NewServer(logger, handler.NewImpl(logger))
+	logger.Println(configuration.Validators)
+	server := cmd.NewServer(logger, handler.NewImpl(logger, configuration.Validators))
 
 	server.Start()
+	//mainNode := avl.NewNode(configuration.Validators[0])
+	//for _, nodes := range configuration.Validators {
+	//	logger.Println(nodes)
+	//	mainNode.Insert(nodes)
+	//}
+	//
+	//logger.Println(mainNode.CheckConsensus(), " Coseensus")
+	//logger.Println(mainNode.GetHighestValidator())
 
 }

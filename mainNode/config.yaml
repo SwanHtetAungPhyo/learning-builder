@@ -1,0 +1,6 @@
+server:
+  port: 8545
+
+validators:
+  - name: "2061fcaf013131a753bac07e10cdf46eae95cb96bbbfcdbd7564667fc350db62"
+    stake: 1000
